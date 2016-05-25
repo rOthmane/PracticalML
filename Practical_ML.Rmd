@@ -1,0 +1,106 @@
+---
+title: "Partical machine learning"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+suppressMessages(library(lattice))
+suppressMessages(library(ggplot2))
+suppressMessages(library(caret))
+suppressMessages(library(randomForest))
+suppressMessages(library(foreach))
+suppressMessages(library(iterators))
+suppressMessages(library(parallel))
+suppressMessages(library(doMC))
+```
+## Data partition
+
+First of all, we take 75% of our data for training, and the other 25% for testing.<br>
+We will use the testing data to do cross-validation.
+```{r training}
+data =  read.csv("~/Desktop/Coursera/pml-training.csv", header = TRUE)
+inTrain <- createDataPartition(y=data$classe,p=0.75,list=FALSE)
+training = data[inTrain,]
+testing = data[-inTrain,]
+```
+
+## Data pre-processing
+
+Before applying a model to our data, we do some pre-processing.
+In fact, by seeing the data, we noticed that many columns contain many NA values and just few values that we can use to predict our outcome variable "classe". These columns turns out to start with one of these strings :<br> 
+kurtosis, skewness, max, min, amplitude, var, avg, stddev. <br>
+So we remove these columns using these commands :
+```{r}
+remove <- grep("^kurtosis|skewness|max|min|amplitude|var|avg|stddev",colnames(training))
+trainingProcessed <- training[,-remove]
+```
+
+In addition, we removed other variables that are not relevant in the prediction of the ourtcome variable :
+```{r}
+trainingProcessed$X                     <- NULL
+trainingProcessed$user_name             <- NULL
+trainingProcessed$raw_timestamp_part_1  <- NULL
+trainingProcessed$raw_timestamp_part_2  <- NULL
+trainingProcessed$cvtd_timestamp        <- NULL
+trainingProcessed$new_window            <- NULL
+trainingProcessed$num_window            <- NULL
+```
+## Application of the model
+###Parameters choice
+We chose to use a random forest model and we used the train() function of the caret package. <br>
+To apply our model, we have to configure two parameters. <br>
+The first one is "mtry", which is the number of variables randomly sampled as candidates at each split. <br>
+The second one is "ntree" which is the number of trees to grow. <br>
+To determine these parameters we tried many values and we tried to maximize the accuracy given by the model and the accuracy calculated in the testing set, while minimizing mtry and ntree to avoid overfitting.<br>
+We had these results :
+
+-------------------------------------------------------------
+mtry      ntree	  Accuracy	      Accuracy on test
+--        --      ----------      ---------
+20	      50	    0.9897462	      0.9971452
+
+10	      50	    0.9910806	      0.9969413
+
+5	        50	    0.9903768	      0.9967374
+
+5	        40	    0.9890639	      0.9967374
+
+5	        30	    0.9893414	      0.99531
+
+5	        20	    0.9868305	      0.9955139
+
+**5**	  **10**    **0.9808936**	**0.9908238**
+
+5	        9	      0.9794522	      0.9887847
+
+5	        8	      0.9778062	      0.9891925
+
+5	        7	      0.9750383	      0.9877651
+
+5	        6	      0.9706605	      0.9836868
+
+5	        5	      0.9655296	      0.9816476
+
+5	        4	      0.9542655	      0.9747145
+-------------------------------------------------------------
+
+The values that we will consider are : **mtry = 5 and ntree = 10.**<br>
+We took these values in order to maximize the accuracy while avoiding overfitting.<br>
+
+###Building the model
+Finally, we use the train() funtion to build our model with the values mtry = 5 and ntree = 10 :
+```{r}
+tune = expand.grid(mtry=5)
+modelFit <- train(classe~.,data=trainingProcessed,method="rf", tuneGrid = tune, ntree=10)
+```
+###Results of our model
+The accuracy of our model is : **`r modelFit$results["Accuracy"]`** <br>
+We used the model to predict the values in the testing set
+```{r}
+pred <- predict(modelFit, testing)
+confusion <- confusionMatrix(pred,testing$classe)
+```
+The accuracy of our model calculated on the testing set is : **`r confusion$overall["Accuracy"]`**
+
+Finallly, an unbiased estimate of the out of sample error is **`r round(modelFit$finalModel$err.rate[10,"OOB"],3)*100`%.**
